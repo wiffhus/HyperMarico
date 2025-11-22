@@ -1,0 +1,557 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ハイパー麻理子</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Courier New', sans-serif;
+        }
+        #gameCanvas {
+            background-color: #87CEEB; /* 空の色 */
+            border: 4px solid #fff;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 20px;
+            text-shadow: 2px 2px 0 #000;
+            text-align: center;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div id="ui">
+    <div id="scoreBoard">STAGE: 1 | HP: 3</div>
+    <div id="message">PRESS SPACE TO START</div>
+</div>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+
+<script>
+// --- ゲーム設定 ---
+const CANVAS_WIDTH = 800;
+const CANVAS_HEIGHT = 600;
+const GRAVITY = 0.6;
+const FRICTION = 0.8;
+const PLAYER_SPEED = 5;
+const JUMP_FORCE = 14;
+
+// 色設定
+const COLORS = {
+    player: '#FF0000',     // 麻理子（赤）
+    ground: '#8B4513',     // 地面（茶）
+    block:  '#CD853F',     // ブロック
+    enemy:  '#800080',     // 敵（紫）
+    boss:   '#000000',     // ボス（黒）
+    goal:   '#FFD700'      // ゴールポール（金）
+};
+
+// ステージ構成 (10ステージ)
+// 0:空, 1:地面, 2:ブロック, 3:敵, 9:ゴール
+// ※実際のマップはスクリプトで自動生成・補正します
+const STAGE_CONFIG = {
+    totalStages: 10,
+    bossStages: [3, 5, 7, 10]
+};
+
+// --- ゲームクラス ---
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('gameCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.stage = 1;
+        this.player = null;
+        this.platforms = [];
+        this.enemies = [];
+        this.particles = [];
+        this.boss = null;
+        this.keys = {};
+        this.cameraX = 0;
+        this.gameState = 'START'; // START, PLAYING, GAMEOVER, CLEARED
+        this.uiMessage = document.getElementById('message');
+        this.uiScore = document.getElementById('scoreBoard');
+        
+        this.initInput();
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+    }
+
+    initInput() {
+        window.addEventListener('keydown', e => this.keys[e.code] = true);
+        window.addEventListener('keyup', e => this.keys[e.code] = false);
+    }
+
+    resetStage() {
+        this.player = new Player(100, 300);
+        this.platforms = [];
+        this.enemies = [];
+        this.particles = [];
+        this.boss = null;
+        this.cameraX = 0;
+        this.generateLevel(this.stage);
+        this.gameState = 'PLAYING';
+        this.updateUI();
+    }
+
+    generateLevel(stageNum) {
+        // 基本の床生成
+        let length = 2000 + (stageNum * 300); // ステージが進むと長くなる
+        if (STAGE_CONFIG.bossStages.includes(stageNum)) {
+            length = 1200; // ボスステージは短めの決戦場
+        }
+
+        // 地面
+        for (let x = 0; x < length; x += 50) {
+            // 穴（落下ポイント）の作成: ステージが進むと穴が増える
+            if (!STAGE_CONFIG.bossStages.includes(stageNum) && x > 300 && x < length - 300) {
+                if (Math.random() < (stageNum * 0.02)) continue; 
+            }
+            this.platforms.push(new Platform(x, CANVAS_HEIGHT - 50, 50, 50));
+        }
+
+        // 壁 (左右)
+        this.platforms.push(new Platform(-50, 0, 50, CANVAS_HEIGHT * 2));
+        this.platforms.push(new Platform(length, 0, 50, CANVAS_HEIGHT * 2));
+
+        // ボスステージ以外のアスレチック生成
+        if (!STAGE_CONFIG.bossStages.includes(stageNum)) {
+            for (let x = 400; x < length - 400; x += 150 + Math.random() * 100) {
+                let h = 150 + Math.random() * 200;
+                this.platforms.push(new Platform(x, CANVAS_HEIGHT - h, 100, 20));
+                
+                // 敵配置
+                if (Math.random() < 0.5 + (stageNum * 0.05)) {
+                    this.enemies.push(new Enemy(x + 20, CANVAS_HEIGHT - h - 40));
+                }
+            }
+            // 地上の敵
+            for (let x = 500; x < length - 300; x += 300) {
+                if (Math.random() < 0.3 + (stageNum * 0.05)) {
+                    this.enemies.push(new Enemy(x, CANVAS_HEIGHT - 90));
+                }
+            }
+            // ゴール
+            this.goalX = length - 100;
+        } else {
+            // ボス出現
+            const isBigBoss = stageNum === 10;
+            this.boss = new Boss(length - 300, CANVAS_HEIGHT - (isBigBoss ? 250 : 150), isBigBoss);
+            this.goalX = null; // ボスを倒すとゴールが出る
+        }
+    }
+
+    update() {
+        if (this.gameState === 'START' || this.gameState === 'GAMEOVER' || this.gameState === 'VICTORY') {
+            if (this.keys['Space'] || this.keys['ArrowUp']) {
+                if (this.gameState === 'VICTORY' || this.gameState === 'GAMEOVER') {
+                    this.stage = 1;
+                }
+                this.resetStage();
+            }
+            return;
+        }
+
+        // プレイヤー更新
+        this.player.update(this.keys, this.platforms);
+
+        // 落下死判定
+        if (this.player.y > CANVAS_HEIGHT) {
+            this.player.takeDamage(999); // 即死
+        }
+
+        // カメラ移動（プレイヤーを追従、ただし戻れない）
+        let targetCamX = this.player.x - CANVAS_WIDTH / 3;
+        if (targetCamX < 0) targetCamX = 0;
+        if (targetCamX > this.cameraX) this.cameraX = targetCamX;
+
+        // 敵の更新
+        this.enemies.forEach(enemy => {
+            enemy.update(this.platforms);
+            // プレイヤーとの当たり判定
+            if (enemy.isAlive && this.checkCollision(this.player, enemy)) {
+                // 上から踏んだか？
+                if (this.player.vy > 0 && this.player.y + this.player.height < enemy.y + enemy.height / 2) {
+                    enemy.die();
+                    this.player.vy = -8; // 踏んでジャンプ
+                    this.spawnParticles(enemy.x, enemy.y, COLORS.enemy);
+                } else {
+                    this.player.takeDamage(1);
+                }
+            }
+        });
+
+        // ボスの更新
+        if (this.boss) {
+            this.boss.update(this.platforms, this.player);
+            if (this.boss.isAlive && this.checkCollision(this.player, this.boss)) {
+                 // ボスは踏むとダメージ
+                 if (this.player.vy > 0 && this.player.y + this.player.height < this.boss.y + this.boss.height * 0.8) {
+                    this.boss.takeDamage(1);
+                    this.player.vy = -10;
+                    this.spawnParticles(this.player.x, this.player.y + 40, '#FFF');
+                } else {
+                    this.player.takeDamage(1);
+                }
+            }
+            if (!this.boss.isAlive && this.goalX === null) {
+                this.goalX = this.boss.x + 200; // ボス撃破でゴール出現
+                this.spawnParticles(this.boss.x, this.boss.y, COLORS.boss, 50);
+                this.boss = null;
+            }
+        }
+
+        // パーティクル更新
+        this.particles = this.particles.filter(p => p.life > 0);
+        this.particles.forEach(p => p.update());
+
+        // ゴール判定
+        if (this.goalX && this.player.x > this.goalX) {
+            this.nextStage();
+        }
+
+        // ゲームオーバー判定
+        if (this.player.hp <= 0) {
+            this.gameState = 'GAMEOVER';
+            this.uiMessage.textContent = "GAME OVER - PRESS SPACE";
+            this.uiMessage.style.display = 'block';
+        }
+
+        this.updateUI();
+    }
+
+    draw() {
+        // 背景クリア
+        this.ctx.fillStyle = '#87CEEB';
+        this.ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+
+        this.ctx.save();
+        this.ctx.translate(-this.cameraX, 0);
+
+        // 床描画
+        this.platforms.forEach(p => {
+            this.ctx.fillStyle = COLORS.ground;
+            this.ctx.fillRect(p.x, p.y, p.width, p.height);
+            // 草の装飾
+            this.ctx.fillStyle = '#228B22';
+            this.ctx.fillRect(p.x, p.y, p.width, 10);
+        });
+
+        // ゴール描画
+        if (this.goalX) {
+            this.ctx.fillStyle = COLORS.goal;
+            this.ctx.fillRect(this.goalX, CANVAS_HEIGHT - 250, 20, 200);
+            this.ctx.fillStyle = 'red';
+            this.ctx.beginPath();
+            this.ctx.moveTo(this.goalX + 20, CANVAS_HEIGHT - 250);
+            this.ctx.lineTo(this.goalX + 60, CANVAS_HEIGHT - 230);
+            this.ctx.lineTo(this.goalX + 20, CANVAS_HEIGHT - 210);
+            this.ctx.fill();
+        }
+
+        // 敵描画
+        this.enemies.forEach(e => {
+            if(e.isAlive) {
+                this.ctx.fillStyle = COLORS.enemy;
+                this.ctx.fillRect(e.x, e.y, e.width, e.height);
+                // 目
+                this.ctx.fillStyle = 'white';
+                this.ctx.fillRect(e.x + 5, e.y + 5, 10, 10);
+                this.ctx.fillRect(e.x + 25, e.y + 5, 10, 10);
+            }
+        });
+
+        // ボス描画
+        if (this.boss && this.boss.isAlive) {
+            this.ctx.fillStyle = COLORS.boss;
+            this.ctx.fillRect(this.boss.x, this.boss.y, this.boss.width, this.boss.height);
+            // ボスのHPバー
+            this.ctx.fillStyle = 'red';
+            this.ctx.fillRect(this.boss.x, this.boss.y - 20, this.boss.width, 10);
+            this.ctx.fillStyle = 'green';
+            this.ctx.fillRect(this.boss.x, this.boss.y - 20, this.boss.width * (this.boss.hp / this.boss.maxHp), 10);
+        }
+
+        // プレイヤー描画
+        if (this.player.hp > 0) {
+            this.ctx.fillStyle = COLORS.player;
+            this.ctx.fillRect(this.player.x, this.player.y, this.player.width, this.player.height);
+            // 帽子
+            this.ctx.fillStyle = '#8B0000';
+            this.ctx.fillRect(this.player.x - 5, this.player.y, this.player.width + 10, 10);
+        }
+
+        // パーティクル描画
+        this.particles.forEach(p => {
+            this.ctx.fillStyle = p.color;
+            this.ctx.fillRect(p.x, p.y, p.size, p.size);
+        });
+
+        this.ctx.restore();
+
+        // UI表示制御
+        if (this.gameState === 'START') {
+            this.uiMessage.style.display = 'block';
+            this.uiMessage.innerHTML = "HYPER MARICO<br><br>PRESS SPACE TO START";
+        } else if (this.gameState === 'PLAYING') {
+            this.uiMessage.style.display = 'none';
+        }
+    }
+
+    loop() {
+        this.update();
+        this.draw();
+        requestAnimationFrame(this.loop);
+    }
+
+    checkCollision(rect1, rect2) {
+        return (rect1.x < rect2.x + rect2.width &&
+                rect1.x + rect1.width > rect2.x &&
+                rect1.y < rect2.y + rect2.height &&
+                rect1.y + rect1.height > rect2.y);
+    }
+
+    spawnParticles(x, y, color, count = 10) {
+        for (let i = 0; i < count; i++) {
+            this.particles.push(new Particle(x, y, color));
+        }
+    }
+
+    nextStage() {
+        this.stage++;
+        if (this.stage > STAGE_CONFIG.totalStages) {
+            this.gameState = 'VICTORY';
+            this.uiMessage.innerHTML = "ALL CLEAR!<br>YOU ARE A LEGEND!<br>PRESS SPACE";
+            this.uiMessage.style.display = 'block';
+        } else {
+            this.resetStage();
+        }
+    }
+
+    updateUI() {
+        this.uiScore.innerHTML = `STAGE: ${this.stage} / ${STAGE_CONFIG.totalStages} | HP: ${this.player ? this.player.hp : 0}`;
+    }
+}
+
+// --- プレイヤークラス ---
+class Player {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 40;
+        this.height = 40;
+        this.vx = 0;
+        this.vy = 0;
+        this.hp = 3;
+        this.onGround = false;
+        this.invincible = 0;
+    }
+
+    update(keys, platforms) {
+        // 左右移動
+        if (keys['ArrowRight']) this.vx += 1;
+        if (keys['ArrowLeft']) this.vx -= 1;
+        
+        this.vx *= FRICTION;
+        this.x += this.vx;
+
+        // 壁判定（簡易）
+        platforms.forEach(p => {
+            if (this.checkCol(p) && this.y + this.height > p.y + 10) {
+                if (this.vx > 0) this.x = p.x - this.width;
+                else if (this.vx < 0) this.x = p.x + p.width;
+                this.vx = 0;
+            }
+        });
+
+        // ジャンプ
+        if ((keys['Space'] || keys['ArrowUp']) && this.onGround) {
+            this.vy = -JUMP_FORCE;
+            this.onGround = false;
+        }
+
+        this.vy += GRAVITY;
+        this.y += this.vy;
+
+        // 地面判定
+        this.onGround = false;
+        platforms.forEach(p => {
+            if (this.checkCol(p) && this.vy >= 0 && this.y + this.height - p.y < 20) {
+                this.y = p.y - this.height;
+                this.vy = 0;
+                this.onGround = true;
+            }
+            // 天井判定
+            else if (this.checkCol(p) && this.vy < 0) {
+                this.y = p.y + p.height;
+                this.vy = 0;
+            }
+        });
+
+        if (this.invincible > 0) this.invincible--;
+    }
+
+    checkCol(p) {
+        return (this.x < p.x + p.width && this.x + this.width > p.x &&
+                this.y < p.y + p.height && this.y + this.height > p.y);
+    }
+
+    takeDamage(amount) {
+        if (this.invincible > 0) return;
+        this.hp -= amount;
+        this.invincible = 60; // 1秒無敵
+        this.vy = -5;
+        if (this.hp <= 0) this.hp = 0;
+    }
+}
+
+// --- 敵クラス ---
+class Enemy {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.width = 40;
+        this.height = 40;
+        this.vx = -2;
+        this.vy = 0;
+        this.isAlive = true;
+    }
+
+    update(platforms) {
+        if (!this.isAlive) return;
+
+        this.vy += GRAVITY;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // 地面判定と折り返し
+        let grounded = false;
+        platforms.forEach(p => {
+            if (this.x < p.x + p.width && this.x + this.width > p.x &&
+                this.y < p.y + p.height && this.y + this.height > p.y) {
+                
+                // 上に乗る
+                if (this.vy >= 0 && this.y + this.height - p.y < 20) {
+                    this.y = p.y - this.height;
+                    this.vy = 0;
+                    grounded = true;
+                } 
+                // 横衝突
+                else {
+                    this.vx *= -1;
+                }
+            }
+        });
+
+        // 崖際で折り返すAI
+        if (grounded && Math.random() < 0.01) {
+            this.vx *= -1;
+        }
+    }
+
+    die() {
+        this.isAlive = false;
+    }
+}
+
+// --- ボスクラス ---
+class Boss {
+    constructor(x, y, isBig) {
+        this.x = x;
+        this.y = y;
+        this.width = isBig ? 120 : 80;
+        this.height = isBig ? 120 : 80;
+        this.hp = isBig ? 10 : 3;
+        this.maxHp = this.hp;
+        this.isBig = isBig;
+        this.vx = -3;
+        this.vy = 0;
+        this.isAlive = true;
+        this.jumpTimer = 0;
+    }
+
+    update(platforms, player) {
+        if (!this.isAlive) return;
+
+        this.vy += GRAVITY;
+        this.x += this.vx;
+        this.y += this.vy;
+
+        // 地面判定
+        platforms.forEach(p => {
+            if (this.x < p.x + p.width && this.x + this.width > p.x &&
+                this.y < p.y + p.height && this.y + this.height > p.y) {
+                if (this.vy >= 0) {
+                    this.y = p.y - this.height;
+                    this.vy = 0;
+                }
+            }
+        });
+
+        // 移動範囲制限
+        this.jumpTimer++;
+        if (this.jumpTimer > 100) {
+            this.vy = -12; // ジャンプ攻撃
+            this.vx = (player.x < this.x) ? -5 : 5; // プレイヤーの方へ
+            this.jumpTimer = 0;
+        }
+
+        // 壁に当たったら反転
+        if (this.x < player.x - 400 || this.x > player.x + 400) {
+            this.vx *= -1;
+        }
+    }
+
+    takeDamage(amount) {
+        this.hp -= amount;
+        if (this.hp <= 0) {
+            this.isAlive = false;
+        }
+    }
+}
+
+// --- 床クラス ---
+class Platform {
+    constructor(x, y, w, h) {
+        this.x = x; this.y = y; this.width = w; this.height = h;
+    }
+}
+
+// --- パーティクル（エフェクト） ---
+class Particle {
+    constructor(x, y, color) {
+        this.x = x; this.y = y;
+        this.vx = (Math.random() - 0.5) * 10;
+        this.vy = (Math.random() - 0.5) * 10;
+        this.life = 30;
+        this.color = color;
+        this.size = Math.random() * 5 + 2;
+    }
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        this.life--;
+    }
+}
+
+// ゲーム開始
+window.onload = () => {
+    new Game();
+};
+</script>
+</body>
+</html>
