@@ -15,13 +15,14 @@
             height: 100vh;
             overflow: hidden;
             font-family: 'Courier New', sans-serif;
-            touch-action: none; /* スマホでのスクロール防止 */
+            touch-action: none;
         }
         #gameCanvas {
-            background-color: #87CEEB; /* 空の色 */
+            background-color: #87CEEB;
             border: 4px solid #fff;
             box-shadow: 0 0 20px rgba(0,0,0,0.5);
-            cursor: pointer; /* クリックできることを示唆 */
+            cursor: pointer;
+            image-rendering: pixelated; /* ドット絵をくっきり表示 */
         }
         #ui {
             position: absolute;
@@ -46,25 +47,104 @@
 <canvas id="gameCanvas" width="800" height="600"></canvas>
 
 <script>
+// --- 麻理子ドット絵データ ---
+// .:透明, R:赤, D:濃赤, S:肌色, B:青, H:茶色(髪/靴), Y:黄, W:白
+const P = {
+    _: null, 
+    R: '#FF0000', D: '#8B0000', S: '#FFDAB9', 
+    B: '#0000CD', H: '#482808', Y: '#FFD700', W: '#FFFFFF'
+};
+
+// 20x20ドットのデザインパターン
+const SPRITES = {
+    idle: [
+        // 立ち
+        "_______RRRRR________",
+        "______RRRRRRR_______",
+        "______RWWDRRR_______", // 帽子(Mマークイメージ)
+        "_____HHHSSHHH_______", // 髪・顔
+        "____H_S_SS_S_H______", // ツインテール・目
+        "____H_SSSSSS_H______",
+        "_______SSSS_________",
+        "______RRRRRR________",
+        "_____RRBBRR_________", // 体
+        "____WRRBBRRW________", // 手
+        "____WBBYYBBW________", // オーバーオール
+        "____BBBBBBBB________",
+        "____BB____BB________",
+        "____HH____HH________", // 足
+        "____HH____HH________"
+    ],
+    run1: [
+        // 走り1
+        "_______RRRRR________",
+        "______RRRRRRR_______",
+        "______RWWDRRR_______",
+        "_____HHHSSHHH_______",
+        "____H_S_SS_S_H______",
+        "____H_SSSSSS_H______",
+        "_______SSSS_________",
+        "_______RRRR_________",
+        "_____W_BBRR_W_______",
+        "______RBBRRR________",
+        "______BBYYBB________",
+        "______BBBBBB________",
+        "______BB__H_________",
+        "_____HH___H_________",
+        "__________H_________"
+    ],
+    run2: [
+        // 走り2
+        "_______RRRRR________",
+        "______RRRRRRR_______",
+        "______RWWDRRR_______",
+        "_____HHHSSHHH_______",
+        "____H_S_SS_S_H______",
+        "____H_SSSSSS_H______",
+        "_______SSSS_________",
+        "_______RRRR_________",
+        "_____W_BBRR_W_______",
+        "_______RRRBBR_______",
+        "______BBYYBB________",
+        "______BBBBBB________",
+        "_______H__BB________",
+        "_______H___HH_______",
+        "_______H____________"
+    ],
+    jump: [
+        // ジャンプ(バンザイ)
+        "_______RRRRR________",
+        "______RRRRRRR_______",
+        "______RWWDRRR_______",
+        "_____HHHSSHHH_______",
+        "____H_S_SS_S_H______",
+        "____H_SSSSSS_H______",
+        "_______SSSS_________",
+        "____W__RRRR__W______", // 手を上げる
+        "____R__BBRR__R______",
+        "____R_BBYYBB_R______",
+        "______BBBBBB________",
+        "______BB__BB________",
+        "_____H______H_______", // 足を開く
+        "____H________H______",
+        "____________________"
+    ]
+};
+
 // --- ゲーム設定 ---
 const CANVAS_WIDTH = 800;
 const CANVAS_HEIGHT = 600;
 const GRAVITY = 0.6;
 const FRICTION = 0.8;
-const PLAYER_SPEED = 5;
 const JUMP_FORCE = 14;
 
-// 色設定
 const COLORS = {
-    player: '#FF0000',     // 麻理子（赤）
-    ground: '#8B4513',     // 地面（茶）
-    block:  '#CD853F',     // ブロック
-    enemy:  '#800080',     // 敵（紫）
-    boss:   '#000000',     // ボス（黒）
-    goal:   '#FFD700'      // ゴールポール（金）
+    ground: '#8B4513',
+    enemy:  '#800080',
+    boss:   '#000000',
+    goal:   '#FFD700'
 };
 
-// ステージ構成 (10ステージ)
 const STAGE_CONFIG = {
     totalStages: 10,
     bossStages: [3, 5, 7, 10]
@@ -93,15 +173,11 @@ class Game {
     }
 
     initInput() {
-        // キーボード操作
         window.addEventListener('keydown', e => {
-            // スペースキー等のデフォルト動作（スクロール）を防ぐ
             if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].indexOf(e.code) > -1) {
                 e.preventDefault();
             }
             this.keys[e.code] = true;
-            
-            // ゲーム開始・リスタートのトリガー
             if ((e.code === 'Space' || e.code === 'ArrowUp') && 
                 (this.gameState === 'START' || this.gameState === 'GAMEOVER' || this.gameState === 'VICTORY')) {
                 this.handleStart();
@@ -110,17 +186,13 @@ class Game {
         
         window.addEventListener('keyup', e => this.keys[e.code] = false);
 
-        // マウス/タッチ操作（クリックでもスタート・ジャンプ可能に）
         this.canvas.addEventListener('mousedown', () => {
-            this.keys['Space'] = true; // スペースが押されたことにする
+            this.keys['Space'] = true;
             if (this.gameState === 'START' || this.gameState === 'GAMEOVER' || this.gameState === 'VICTORY') {
                 this.handleStart();
             }
         });
-        this.canvas.addEventListener('mouseup', () => {
-            this.keys['Space'] = false;
-        });
-        // スマホ用タッチ
+        this.canvas.addEventListener('mouseup', () => this.keys['Space'] = false);
         this.canvas.addEventListener('touchstart', (e) => {
             e.preventDefault();
             this.keys['Space'] = true;
@@ -155,9 +227,7 @@ class Game {
 
     generateLevel(stageNum) {
         let length = 2000 + (stageNum * 300);
-        if (STAGE_CONFIG.bossStages.includes(stageNum)) {
-            length = 1200;
-        }
+        if (STAGE_CONFIG.bossStages.includes(stageNum)) length = 1200;
 
         // 地面
         for (let x = 0; x < length; x += 50) {
@@ -166,8 +236,6 @@ class Game {
             }
             this.platforms.push(new Platform(x, CANVAS_HEIGHT - 50, 50, 50));
         }
-
-        // 壁
         this.platforms.push(new Platform(-50, 0, 50, CANVAS_HEIGHT * 2));
         this.platforms.push(new Platform(length, 0, 50, CANVAS_HEIGHT * 2));
 
@@ -175,7 +243,6 @@ class Game {
             for (let x = 400; x < length - 400; x += 150 + Math.random() * 100) {
                 let h = 150 + Math.random() * 200;
                 this.platforms.push(new Platform(x, CANVAS_HEIGHT - h, 100, 20));
-                
                 if (Math.random() < 0.5 + (stageNum * 0.05)) {
                     this.enemies.push(new Enemy(x + 20, CANVAS_HEIGHT - h - 40));
                 }
@@ -198,9 +265,7 @@ class Game {
 
         this.player.update(this.keys, this.platforms);
 
-        if (this.player.y > CANVAS_HEIGHT) {
-            this.player.takeDamage(999);
-        }
+        if (this.player.y > CANVAS_HEIGHT) this.player.takeDamage(999);
 
         let targetCamX = this.player.x - CANVAS_WIDTH / 3;
         if (targetCamX < 0) targetCamX = 0;
@@ -240,16 +305,13 @@ class Game {
         this.particles = this.particles.filter(p => p.life > 0);
         this.particles.forEach(p => p.update());
 
-        if (this.goalX && this.player.x > this.goalX) {
-            this.nextStage();
-        }
+        if (this.goalX && this.player.x > this.goalX) this.nextStage();
 
         if (this.player.hp <= 0) {
             this.gameState = 'GAMEOVER';
             this.uiMessage.innerHTML = "GAME OVER<br>PRESS SPACE or CLICK";
             this.uiMessage.style.display = 'block';
         }
-
         this.updateUI();
     }
 
@@ -260,6 +322,7 @@ class Game {
         this.ctx.save();
         this.ctx.translate(-this.cameraX, 0);
 
+        // 床
         this.platforms.forEach(p => {
             this.ctx.fillStyle = COLORS.ground;
             this.ctx.fillRect(p.x, p.y, p.width, p.height);
@@ -267,6 +330,7 @@ class Game {
             this.ctx.fillRect(p.x, p.y, p.width, 10);
         });
 
+        // ゴール
         if (this.goalX) {
             this.ctx.fillStyle = COLORS.goal;
             this.ctx.fillRect(this.goalX, CANVAS_HEIGHT - 250, 20, 200);
@@ -278,6 +342,7 @@ class Game {
             this.ctx.fill();
         }
 
+        // 敵
         this.enemies.forEach(e => {
             if(e.isAlive) {
                 this.ctx.fillStyle = COLORS.enemy;
@@ -288,6 +353,7 @@ class Game {
             }
         });
 
+        // ボス
         if (this.boss && this.boss.isAlive) {
             this.ctx.fillStyle = COLORS.boss;
             this.ctx.fillRect(this.boss.x, this.boss.y, this.boss.width, this.boss.height);
@@ -297,13 +363,12 @@ class Game {
             this.ctx.fillRect(this.boss.x, this.boss.y - 20, this.boss.width * (this.boss.hp / this.boss.maxHp), 10);
         }
 
+        // プレイヤー（ドット絵描画）
         if (this.player && this.player.hp > 0) {
-            this.ctx.fillStyle = COLORS.player;
-            this.ctx.fillRect(this.player.x, this.player.y, this.player.width, this.player.height);
-            this.ctx.fillStyle = '#8B0000';
-            this.ctx.fillRect(this.player.x - 5, this.player.y, this.player.width + 10, 10);
+            this.player.draw(this.ctx);
         }
 
+        // エフェクト
         this.particles.forEach(p => {
             this.ctx.fillStyle = p.color;
             this.ctx.fillRect(p.x, p.y, p.size, p.size);
@@ -333,9 +398,7 @@ class Game {
     }
 
     spawnParticles(x, y, color, count = 10) {
-        for (let i = 0; i < count; i++) {
-            this.particles.push(new Particle(x, y, color));
-        }
+        for (let i = 0; i < count; i++) this.particles.push(new Particle(x, y, color));
     }
 
     nextStage() {
@@ -354,20 +417,41 @@ class Game {
     }
 }
 
-// --- プレイヤークラス ---
+// --- プレイヤークラス（ドット絵＆アニメーション対応） ---
 class Player {
     constructor(x, y) {
-        this.x = x; this.y = y; this.width = 40; this.height = 40;
-        this.vx = 0; this.vy = 0; this.hp = 3; this.onGround = false; this.invincible = 0;
+        this.x = x; this.y = y; 
+        this.width = 40; this.height = 40;
+        this.vx = 0; this.vy = 0; 
+        this.hp = 3; 
+        this.onGround = false; 
+        this.invincible = 0;
+        
+        // アニメーション用
+        this.facingRight = true;
+        this.animTimer = 0;
+        this.animFrame = 0;
+        this.state = 'idle'; // idle, run, jump
     }
 
     update(keys, platforms) {
-        if (keys['ArrowRight']) this.vx += 1;
-        if (keys['ArrowLeft']) this.vx -= 1;
+        // 移動と向き
+        let moving = false;
+        if (keys['ArrowRight']) {
+            this.vx += 1;
+            this.facingRight = true;
+            moving = true;
+        }
+        if (keys['ArrowLeft']) {
+            this.vx -= 1;
+            this.facingRight = false;
+            moving = true;
+        }
         
         this.vx *= FRICTION;
         this.x += this.vx;
 
+        // 壁判定
         platforms.forEach(p => {
             if (this.checkCol(p) && this.y + this.height > p.y + 10) {
                 if (this.vx > 0) this.x = p.x - this.width;
@@ -376,6 +460,7 @@ class Player {
             }
         });
 
+        // ジャンプ
         if ((keys['Space'] || keys['ArrowUp']) && this.onGround) {
             this.vy = -JUMP_FORCE;
             this.onGround = false;
@@ -384,6 +469,7 @@ class Player {
         this.vy += GRAVITY;
         this.y += this.vy;
 
+        // 接地判定
         this.onGround = false;
         platforms.forEach(p => {
             if (this.checkCol(p) && this.vy >= 0 && this.y + this.height - p.y < 20) {
@@ -397,6 +483,59 @@ class Player {
         });
 
         if (this.invincible > 0) this.invincible--;
+
+        // アニメーション状態更新
+        if (!this.onGround) {
+            this.state = 'jump';
+        } else if (moving && Math.abs(this.vx) > 0.5) {
+            this.state = 'run';
+        } else {
+            this.state = 'idle';
+        }
+
+        this.animTimer++;
+        if (this.state === 'run') {
+            if (this.animTimer > 5) { // 走る速度
+                this.animFrame = (this.animFrame + 1) % 2;
+                this.animTimer = 0;
+            }
+        } else {
+            this.animFrame = 0;
+        }
+    }
+
+    draw(ctx) {
+        if (this.invincible > 0 && Math.floor(Date.now() / 50) % 2 === 0) return; // 点滅
+
+        let spriteData = SPRITES.idle;
+        if (this.state === 'jump') spriteData = SPRITES.jump;
+        else if (this.state === 'run') spriteData = (this.animFrame === 0) ? SPRITES.run1 : SPRITES.run2;
+
+        const pixelSize = 2.5; // ドットの大きさ
+
+        ctx.save();
+        // 中心を軸に反転させる処理
+        if (!this.facingRight) {
+            ctx.translate(this.x + this.width, this.y);
+            ctx.scale(-1, 1);
+            ctx.translate(0, 0); // 原点あわせ
+        } else {
+            ctx.translate(this.x, this.y);
+        }
+
+        // ドット絵の描画ループ
+        for (let row = 0; row < spriteData.length; row++) {
+            const line = spriteData[row];
+            for (let col = 0; col < line.length; col++) {
+                const colorCode = line[col];
+                if (P[colorCode]) {
+                    ctx.fillStyle = P[colorCode];
+                    // 中央揃え調整
+                    ctx.fillRect(col * pixelSize - 5, row * pixelSize - 5, pixelSize, pixelSize);
+                }
+            }
+        }
+        ctx.restore();
     }
 
     checkCol(p) {
@@ -413,19 +552,16 @@ class Player {
     }
 }
 
-// --- 敵クラス ---
 class Enemy {
     constructor(x, y) {
         this.x = x; this.y = y; this.width = 40; this.height = 40;
         this.vx = -2; this.vy = 0; this.isAlive = true;
     }
-
     update(platforms) {
         if (!this.isAlive) return;
         this.vy += GRAVITY;
         this.x += this.vx;
         this.y += this.vy;
-
         let grounded = false;
         platforms.forEach(p => {
             if (this.x < p.x + p.width && this.x + this.width > p.x &&
@@ -434,19 +570,14 @@ class Enemy {
                     this.y = p.y - this.height;
                     this.vy = 0;
                     grounded = true;
-                } else {
-                    this.vx *= -1;
-                }
+                } else this.vx *= -1;
             }
         });
-
         if (grounded && Math.random() < 0.01) this.vx *= -1;
     }
-
     die() { this.isAlive = false; }
 }
 
-// --- ボスクラス ---
 class Boss {
     constructor(x, y, isBig) {
         this.x = x; this.y = y;
@@ -455,41 +586,29 @@ class Boss {
         this.isBig = isBig;
         this.vx = -3; this.vy = 0; this.isAlive = true; this.jumpTimer = 0;
     }
-
     update(platforms, player) {
         if (!this.isAlive) return;
         this.vy += GRAVITY;
         this.x += this.vx;
         this.y += this.vy;
-
         platforms.forEach(p => {
             if (this.x < p.x + p.width && this.x + this.width > p.x &&
                 this.y < p.y + p.height && this.y + this.height > p.y) {
-                if (this.vy >= 0) {
-                    this.y = p.y - this.height;
-                    this.vy = 0;
-                }
+                if (this.vy >= 0) { this.y = p.y - this.height; this.vy = 0; }
             }
         });
-
         this.jumpTimer++;
         if (this.jumpTimer > 100) {
             this.vy = -12;
             this.vx = (player.x < this.x) ? -5 : 5;
             this.jumpTimer = 0;
         }
-
         if (this.x < player.x - 400 || this.x > player.x + 400) this.vx *= -1;
     }
-
-    takeDamage(amount) {
-        this.hp -= amount;
-        if (this.hp <= 0) this.isAlive = false;
-    }
+    takeDamage(amount) { this.hp -= amount; if (this.hp <= 0) this.isAlive = false; }
 }
 
 class Platform { constructor(x, y, w, h) { this.x = x; this.y = y; this.width = w; this.height = h; } }
-
 class Particle {
     constructor(x, y, color) {
         this.x = x; this.y = y;
