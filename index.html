@@ -3,12 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HYPER MARICO: REALISTIC</title>
+    <title>HYPER MARIKO: LEGENDARY ADVENTURER</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            background-color: #000;
+            background-color: #111;
             display: flex;
             justify-content: center;
             align-items: center;
@@ -19,12 +19,14 @@
         }
         #gameContainer {
             position: relative;
-            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            box-shadow: 0 0 40px rgba(0,0,0,0.9);
+            border: 2px solid #333;
         }
         #gameCanvas {
             background: #000;
             display: block;
         }
+        /* UIレイヤー */
         #ui {
             position: absolute;
             top: 0;
@@ -38,37 +40,99 @@
             align-items: center;
             text-align: center;
             color: white;
-            text-shadow: 2px 2px 4px black;
             z-index: 10;
+            /* 背景画像の設定（スタート画面用） */
+            background-size: cover;
+            background-position: center;
+            transition: opacity 0.5s;
         }
+        /* スタート画面のみ背景画像を表示するためのクラス */
+        .start-bg {
+            background-image: url('maintitle.jpg'); 
+            background-color: rgba(0,0,0,0.5); /* 画像がない場合の予備色 */
+            background-blend-mode: multiply; /* 文字を見やすく暗くする */
+        }
+        
         #hud {
             position: absolute;
-            top: 20px;
-            width: 100%;
-            text-align: center;
-            font-size: 20px;
+            top: 10px;
+            left: 10px;
+            text-align: left;
+            font-size: 18px;
             font-weight: bold;
             pointer-events: none;
             z-index: 20;
-            color: white;
+            color: #fff;
             text-shadow: 1px 1px 2px black;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #555;
         }
-        h1 { font-size: 60px; margin: 0 0 20px 0; color: #ff4444; letter-spacing: 5px; }
-        p { font-size: 24px; margin: 10px 0; }
+        
+        /* HPゲージのデザイン */
+        .bar-container {
+            width: 150px;
+            height: 15px;
+            background: #333;
+            border: 1px solid #fff;
+            margin-top: 5px;
+            position: relative;
+        }
+        #hpBar {
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, #ff3333, #ff0000);
+            transition: width 0.2s;
+        }
+
+        h1 { 
+            font-size: 70px; 
+            margin: 0 0 10px 0; 
+            color: #00ffff; 
+            text-shadow: 0 0 10px #ff00ff;
+            font-style: italic;
+            letter-spacing: 2px;
+        }
+        h2 { font-size: 30px; color: #ff00ff; margin-bottom: 40px; }
+        p { font-size: 20px; margin: 5px 0; text-shadow: 1px 1px 2px #000; }
         .blink { animation: blinker 1s linear infinite; }
         @keyframes blinker { 50% { opacity: 0; } }
+        
+        .controls-info {
+            background: rgba(0,0,0,0.7);
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+            border: 1px solid #00ffff;
+        }
     </style>
 </head>
 <body>
 
 <div id="gameContainer">
-    <div id="hud">STAGE: 1 | HP: 3</div>
-    <div id="ui">
-        <h1>HYPER MARICO</h1>
-        <p>REALISTIC MISSION</p>
-        <p class="blink" style="margin-top:40px; color:#ffff00;">PRESS SPACE TO START</p>
-        <p style="font-size:16px; margin-top:20px; opacity:0.7;">Move: ARROWS | Jump: SPACE | Attack: Z</p>
+    <!-- HUD情報 -->
+    <div id="hud">
+        <div>STAGE: <span id="stageVal">1</span></div>
+        <div>LIFE: <span id="lifeVal">3</span></div>
+        <div>HP: <span id="hpText">100/100</span></div>
+        <div class="bar-container"><div id="hpBar"></div></div>
+        <div style="margin-top:5px; color:#ffff00;">AMMO: <span id="ammoVal">0</span></div>
+        <div style="color:#00ffff;">WEAPON: <span id="weaponVal">NONE</span></div>
     </div>
+
+    <!-- UI (スタート画面・ゲームオーバーなど) -->
+    <div id="ui" class="start-bg">
+        <h1>HYPER MARIKO</h1>
+        <h2>LEGENDARY ADVENTURER</h2>
+        <p class="blink" style="font-size: 28px; color:#ffff00; margin-top: 20px;">PRESS SPACE TO START</p>
+        
+        <div class="controls-info">
+            <p>Move: ARROWS (← →) | Jump: SPACE</p>
+            <p>Sword: S | Gun: G (+ Arrows ↑↓ to Aim)</p>
+        </div>
+    </div>
+    
     <canvas id="gameCanvas" width="800" height="600"></canvas>
 </div>
 
@@ -77,10 +141,10 @@
 const CONFIG = {
     width: 800,
     height: 600,
-    gravity: 0.5,
-    friction: 0.85,
-    speed: 6,
-    jump: 13
+    gravity: 0.6,
+    friction: 0.8,
+    speed: 5,
+    jump: 14
 };
 
 // --- ゲームエンジン ---
@@ -90,7 +154,15 @@ class Game {
         this.ctx = this.canvas.getContext('2d');
         this.stage = 1;
         
-        this.player = new Player(100, 300);
+        // プレイヤーの初期ステータス（ステージ間で持ち越すデータ）
+        this.savedPlayerData = {
+            hp: 100,
+            lives: 3,
+            weapon: 'none',
+            ammo: 0
+        };
+
+        this.player = null;
         this.platforms = [];
         this.enemies = [];
         this.items = [];
@@ -99,11 +171,18 @@ class Game {
         this.keys = {};
         this.cameraX = 0;
         this.gameState = 'START'; 
-        this.stageLength = 0; // ステージの長さを記録用
+        this.stageLength = 0;
         
         this.uiLayer = document.getElementById('ui');
-        this.hudLayer = document.getElementById('hud');
         
+        // HUD要素
+        this.elStage = document.getElementById('stageVal');
+        this.elLife = document.getElementById('lifeVal');
+        this.elHpText = document.getElementById('hpText');
+        this.elHpBar = document.getElementById('hpBar');
+        this.elAmmo = document.getElementById('ammoVal');
+        this.elWeapon = document.getElementById('weaponVal');
+
         this.bgGradient = null;
         this.mountains = [];
 
@@ -115,49 +194,42 @@ class Game {
 
     initInput() {
         window.addEventListener('keydown', e => {
-            if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","KeyZ"].includes(e.code)) {
+            // ゲーム操作キーのデフォルト動作を防ぐ（スクロール防止など）
+            if(["Space","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.code)) {
                 e.preventDefault();
             }
             this.keys[e.code] = true;
 
-            // 攻撃 (Zキー)
-            if (e.code === 'KeyZ' && this.gameState === 'PLAYING') {
-                this.player.attack(this);
+            // 攻撃入力
+            if (this.gameState === 'PLAYING') {
+                if (e.code === 'KeyS') this.player.attack('sword', this);
+                if (e.code === 'KeyG') this.player.attack('gun', this);
             }
 
             // 開始 / リトライ
-            if ((e.code === 'Space' || e.code === 'ArrowUp') && 
-                (this.gameState === 'START' || this.gameState === 'GAMEOVER' || this.gameState === 'VICTORY')) {
-                this.startGame();
+            if (e.code === 'Space') {
+                if (this.gameState === 'START' || this.gameState === 'GAMEOVER' || this.gameState === 'VICTORY') {
+                    this.startGame();
+                }
             }
         });
         
         window.addEventListener('keyup', e => this.keys[e.code] = false);
-        
-        // タッチ対応
-        const container = document.getElementById('gameContainer');
-        container.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-            if (this.gameState !== 'PLAYING') {
-                this.startGame();
-            } else {
-                this.keys['Space'] = true; // タッチはジャンプ
-            }
-        }, {passive: false});
-        container.addEventListener('touchend', (e) => {
-             this.keys['Space'] = false;
-        });
     }
 
     startGame() {
         if (this.gameState === 'VICTORY' || this.gameState === 'GAMEOVER') {
             this.stage = 1;
+            this.savedPlayerData = { hp: 100, lives: 3, weapon: 'none', ammo: 0 };
         }
-        this.resetStage();
+        this.uiLayer.classList.remove('start-bg'); // ゲーム中は背景画像を消す（Canvasが見えるように）
+        this.resetStage(true);
     }
 
-    resetStage() {
-        this.player = new Player(100, 300);
+    resetStage(isNewStage = false) {
+        // プレイヤー生成（持ち越しデータ適用）
+        this.player = new Player(100, 300, this.savedPlayerData);
+        
         this.platforms = [];
         this.enemies = [];
         this.items = [];
@@ -174,40 +246,43 @@ class Game {
 
     generateBackground() {
         this.bgGradient = this.ctx.createLinearGradient(0, 0, 0, CONFIG.height);
-        if (this.stage % 3 === 0) { 
-            this.bgGradient.addColorStop(0, "#050510");
-            this.bgGradient.addColorStop(1, "#201030");
-        } else if (this.stage % 2 === 0) { 
-            this.bgGradient.addColorStop(0, "#502000");
-            this.bgGradient.addColorStop(1, "#904010");
-        } else { 
-            this.bgGradient.addColorStop(0, "#3060a0");
-            this.bgGradient.addColorStop(1, "#80b0e0");
+        // ステージ進行で背景色変化
+        if (this.stage % 3 === 0) { // 夜・基地
+            this.bgGradient.addColorStop(0, "#000000");
+            this.bgGradient.addColorStop(1, "#2c3e50");
+        } else if (this.stage % 2 === 0) { // 夕暮れ・廃墟
+            this.bgGradient.addColorStop(0, "#4b0000");
+            this.bgGradient.addColorStop(1, "#804000");
+        } else { // 昼・都市
+            this.bgGradient.addColorStop(0, "#1a2a6c");
+            this.bgGradient.addColorStop(1, "#b21f1f");
         }
 
+        // 遠景のビル群
         this.mountains = [];
         let mx = 0;
-        while(mx < 15000) {
-            let w = 300 + Math.random() * 400;
-            let h = 150 + Math.random() * 250;
+        while(mx < 20000) {
+            let w = 100 + Math.random() * 150;
+            let h = 200 + Math.random() * 400;
             this.mountains.push({
                 x: mx, y: CONFIG.height, w: w, h: h, 
-                color: `rgba(20,20,30,${0.3 + Math.random()*0.4})`
+                color: `rgba(10,10,20,${0.4 + Math.random()*0.3})` // ビルの色
             });
-            mx += w * 0.6;
+            mx += w + Math.random() * 50;
         }
     }
 
     generateLevel(n) {
-        let len = 2500 + (n * 400);
+        let len = 3000 + (n * 500);
         let isBossStage = [3, 5, 7, 10].includes(n);
-        if (isBossStage) len = 1200;
+        if (isBossStage) len = 1500;
         
-        this.stageLength = len; // 壁の位置を保存
+        this.stageLength = len;
 
-        // 地面
+        // 地面生成
         for (let x = 0; x < len; x += 100) {
-            if (!isBossStage && x > 500 && x < len - 500 && Math.random() < 0.1 + (n*0.01)) continue;
+            // 穴を作る
+            if (!isBossStage && x > 600 && x < len - 600 && Math.random() < 0.15) continue;
             this.platforms.push(new Platform(x, CONFIG.height - 60, 100, 60, 'ground'));
         }
         // 壁
@@ -215,73 +290,95 @@ class Game {
         this.platforms.push(new Platform(len, 0, 100, CONFIG.height * 2, 'wall'));
 
         if (!isBossStage) {
-            // 通常ステージ
-            for (let x = 600; x < len - 600; x += 200 + Math.random() * 200) {
-                let h = 150 + Math.random() * 150;
-                this.platforms.push(new Platform(x, CONFIG.height - h, 120, 20, 'metal'));
+            // 足場と敵とアイテム
+            let currentX = 500;
+            while(currentX < len - 500) {
+                currentX += 200 + Math.random() * 300;
+                
+                // 足場
+                let h = 150 + Math.random() * 200;
+                this.platforms.push(new Platform(currentX, CONFIG.height - h, 150, 20, 'metal'));
 
-                if (Math.random() < 0.6) {
-                    let type = Math.random() < 0.7 ? 'ALIEN' : 'DRONE';
-                    this.enemies.push(new Enemy(x + 30, CONFIG.height - h - 60, type));
+                // 敵出現
+                if (Math.random() < 0.7) {
+                    this.enemies.push(new Enemy(currentX + 50, CONFIG.height - h - 80, 'ZOMBIE'));
                 }
-                if (Math.random() < 0.3) {
-                    // アイテム出現率アップ
-                    let type = Math.random() < 0.5 ? 'SWORD' : 'GUN';
-                    this.items.push(new Item(x + 40, CONFIG.height - h - 80, type));
+
+                // 地上の敵
+                if (Math.random() < 0.5) {
+                    this.enemies.push(new Enemy(currentX + 100, CONFIG.height - 140, 'ZOMBIE'));
                 }
-            }
-            for (let x = 800; x < len - 400; x += 400) {
-                if (Math.random() < 0.5) this.enemies.push(new Enemy(x, CONFIG.height - 120, 'ALIEN'));
+
+                // アイテム配置
+                if (Math.random() < 0.35) {
+                    let roll = Math.random();
+                    let type = 'SWORD';
+                    if (roll > 0.4) type = 'GUN';
+                    if (roll > 0.8) type = 'HEAL';
+                    if (roll > 0.95) type = 'LIFE'; // レア
+                    
+                    // ガンの場合、弾数を設定
+                    let ammoCount = 0;
+                    if (type === 'GUN') ammoCount = Math.random() < 0.5 ? 10 : 50;
+
+                    this.items.push(new Item(currentX + 60, CONFIG.height - h - 100, type, ammoCount));
+                }
             }
             this.goalX = len - 100;
         } else {
-            // ボスステージ
+            // ボス
             let bossType = n === 10 ? 'BIG_BOSS' : 'BOSS';
-            // ボス位置
-            let bossX = len - 300;
+            let bossX = len - 400;
             this.enemies.push(new Enemy(bossX, CONFIG.height - 200, bossType));
-            this.goalX = null;
+            this.goalX = null; // ボスを倒すまでゴールなし
         }
     }
 
     update() {
         if (this.gameState !== 'PLAYING') return;
 
+        // プレイヤー更新
         this.player.update(this.keys, this.platforms);
-        if (this.player.y > CONFIG.height + 100) this.player.hp = 0; 
+        
+        // 落下死判定
+        if (this.player.y > CONFIG.height + 100) {
+            this.player.health = 0; 
+        }
 
+        // カメラ追従
         let targetCamX = this.player.x - CONFIG.width * 0.3;
         if (targetCamX < 0) targetCamX = 0;
+        if (targetCamX > this.stageLength - CONFIG.width) targetCamX = this.stageLength - CONFIG.width;
         this.cameraX += (targetCamX - this.cameraX) * 0.1;
 
+        // 弾丸更新
         this.bullets = this.bullets.filter(b => b.active);
         this.bullets.forEach(b => b.update());
 
+        // 敵更新
         this.enemies = this.enemies.filter(e => e.hp > 0);
         this.enemies.forEach(e => {
             e.update(this.platforms, this.player);
             
+            // プレイヤーとの接触ダメージ
             if (this.checkCollision(this.player, e)) {
-                if (this.player.invincible > 0) return;
-
-                // 踏みつけ（ボス以外）
-                if (e.type !== 'BIG_BOSS' && this.player.vy > 0 && this.player.y + this.player.height/2 < e.y) {
-                    e.takeDamage(5);
-                    this.player.vy = -10;
-                    this.spawnParticles(e.x, e.y, '#ffff00');
-                } else {
-                    if (this.player.weapon !== 'none') {
-                        this.player.weapon = 'none'; // 武器ロスト
-                        this.player.invincible = 60;
-                        this.spawnParticles(this.player.x, this.player.y, '#00ffff');
+                // 無敵時間でなければダメージ
+                if (this.player.invincible <= 0) {
+                     // 踏みつけ判定（ボス以外）
+                    if (e.type === 'ZOMBIE' && this.player.vy > 0 && this.player.y + this.player.height/2 < e.y) {
+                        e.takeDamage(10);
+                        this.player.vy = -8; // 跳ねる
+                        this.spawnParticles(e.x, e.y, '#ffff00');
                     } else {
-                        this.player.takeDamage(1);
+                        this.player.takeDamage(10); // 接触ダメージ
+                        // ノックバック
+                        this.player.vx = this.player.x < e.x ? -10 : 10;
+                        this.player.vy = -5;
                     }
-                    this.player.vx = this.player.x < e.x ? -8 : 8;
-                    this.player.vy = -5;
                 }
             }
 
+            // 弾丸ヒット判定
             this.bullets.forEach(b => {
                 if (b.isPlayerBullet && this.checkCollision(b, e)) {
                     e.takeDamage(b.damage);
@@ -291,71 +388,135 @@ class Game {
             });
         });
         
-        // ボス撃破後のゴール出現処理修正
+        // ボス撃破後のゴール出現
         if (this.goalX === null && this.enemies.length === 0) {
-            // 壁の手前（ステージ長さ - 150）または プレイヤーの少し先 のどちらか手前側に出現
-            this.goalX = Math.min(this.player.x + 300, this.stageLength - 150);
-            this.spawnParticles(this.goalX, CONFIG.height - 200, '#fff', 30);
+            this.goalX = this.stageLength - 150;
+            this.spawnParticles(this.goalX, CONFIG.height - 200, '#fff', 50);
         }
 
-        // 剣判定
-        if (this.player.attackFrame > 0 && this.player.weapon === 'sword') {
-            let swordHitbox = {
-                x: this.player.facingRight ? this.player.x + 30 : this.player.x - 40,
-                y: this.player.y,
-                width: 50,
-                height: 60
-            };
-            this.enemies.forEach(e => {
-                if (this.checkCollision(swordHitbox, e) && this.player.attackFrame === 10) {
-                    e.takeDamage(3); 
-                    this.spawnParticles(e.x, e.y, '#ff0000');
-                }
-            });
+        // 剣の攻撃判定
+        if (this.player.attackFrame > 0 && this.player.currentWeaponAction === 'sword') {
+            // 攻撃の瞬間に判定（アニメーションの中間）
+            if (this.player.attackFrame > 10 && this.player.attackFrame < 20) {
+                let swordHitbox = {
+                    x: this.player.facingRight ? this.player.x + 30 : this.player.x - 60,
+                    y: this.player.y,
+                    width: 60,
+                    height: 70
+                };
+                this.enemies.forEach(e => {
+                    // 無敵時間管理を簡易的に行うため、ヒットストップなどは省略
+                    if (this.checkCollision(swordHitbox, e) && e.invincible <= 0) {
+                        e.takeDamage(5); 
+                        e.invincible = 20; // 連続ヒット防止
+                        this.spawnParticles(e.x, e.y, '#ff0000');
+                    }
+                });
+            }
         }
 
         // アイテム取得
         this.items = this.items.filter(i => !i.taken);
         this.items.forEach(i => {
             if (this.checkCollision(this.player, i)) {
-                this.player.weapon = i.type.toLowerCase(); // 'sword' or 'gun'
                 i.taken = true;
-                this.spawnParticles(this.player.x, this.player.y, '#ffd700');
+                if (i.type === 'SWORD') {
+                    if (this.player.weapon !== 'gun') this.player.weapon = 'sword'; // ガン優先だが、持ち替えボタンがないので上書きしない方がいいか、入手したら切り替えるか。
+                    // 要望により「SとGで操作」なので、両方所持ステータスにする
+                    this.player.hasSword = true;
+                    this.spawnParticles(this.player.x, this.player.y, '#00ffff');
+                } else if (i.type === 'GUN') {
+                    this.player.hasGun = true;
+                    this.player.ammo += i.amount;
+                    this.spawnParticles(this.player.x, this.player.y, '#ffff00');
+                } else if (i.type === 'HEAL') {
+                    this.player.health = Math.min(this.player.health + 30, 100);
+                    this.spawnParticles(this.player.x, this.player.y, '#00ff00');
+                } else if (i.type === 'LIFE') {
+                    this.player.lives++;
+                    this.spawnParticles(this.player.x, this.player.y, '#ff00ff', 20);
+                }
             }
         });
 
         this.particles = this.particles.filter(p => p.life > 0);
         this.particles.forEach(p => p.update());
 
+        // ゴール判定
         if (this.goalX && this.player.x > this.goalX) {
             this.nextStage();
         }
 
-        if (this.player.hp <= 0) {
-            this.gameState = 'GAMEOVER';
-            this.updateUI();
+        // 死亡・ゲームオーバー判定
+        if (this.player.health <= 0) {
+            this.handlePlayerDeath();
         }
 
         this.updateHUD();
     }
 
+    handlePlayerDeath() {
+        this.player.lives--;
+        if (this.player.lives < 0) {
+            this.gameState = 'GAMEOVER';
+            this.updateUI();
+        } else {
+            // LIFEが残っていればステージ最初からやり直し（武器などは保持するか、デスペナルティ入れるか。今回は保持）
+            this.savedPlayerData = {
+                hp: 100,
+                lives: this.player.lives,
+                weapon: this.player.weapon,
+                ammo: this.player.ammo,
+                hasSword: this.player.hasSword,
+                hasGun: this.player.hasGun
+            };
+            this.resetStage();
+        }
+    }
+
+    nextStage() {
+        // ステータス保存
+        this.savedPlayerData = {
+            hp: this.player.health, // HP持ち越し
+            lives: this.player.lives,
+            weapon: this.player.weapon,
+            ammo: this.player.ammo,
+            hasSword: this.player.hasSword,
+            hasGun: this.player.hasGun
+        };
+
+        this.stage++;
+        if (this.stage > 10) {
+            this.gameState = 'VICTORY';
+            this.uiLayer.classList.add('start-bg');
+            this.updateUI();
+        } else {
+            this.resetStage();
+        }
+    }
+
     draw() {
         this.ctx.clearRect(0, 0, CONFIG.width, CONFIG.height);
 
+        // 背景描画
         if(this.bgGradient) {
             this.ctx.fillStyle = this.bgGradient;
             this.ctx.fillRect(0, 0, CONFIG.width, CONFIG.height);
         }
 
+        // 遠景
         this.ctx.save();
-        this.ctx.translate(-this.cameraX * 0.2, 0);
+        this.ctx.translate(-this.cameraX * 0.2, 0); // パララックス
         this.mountains.forEach(m => {
             this.ctx.fillStyle = m.color;
-            this.ctx.beginPath();
-            this.ctx.moveTo(m.x, m.y);
-            this.ctx.lineTo(m.x + m.w/2, m.y - m.h);
-            this.ctx.lineTo(m.x + m.w, m.y);
-            this.ctx.fill();
+            this.ctx.fillRect(m.x, m.y - m.h, m.w, m.h);
+            // ビルの窓
+            this.ctx.fillStyle = 'rgba(255,255,200,0.1)';
+            for(let by = m.y - m.h + 10; by < m.y; by+=30) {
+                for(let bx = m.x + 5; bx < m.x + m.w; bx+=20) {
+                    if(Math.random()>0.5) this.ctx.fillRect(bx, by, 10, 20);
+                }
+            }
         });
         this.ctx.restore();
 
@@ -365,18 +526,22 @@ class Game {
         this.platforms.forEach(p => p.draw(this.ctx));
         
         if (this.goalX) {
-            this.ctx.fillStyle = '#ffaa00';
-            this.ctx.fillRect(this.goalX, CONFIG.height - 300, 10, 300);
+            // ゴールゲート
+            this.ctx.fillStyle = '#00ffff';
+            this.ctx.shadowBlur = 20;
+            this.ctx.shadowColor = '#00ffff';
+            this.ctx.fillRect(this.goalX, CONFIG.height - 200, 10, 200);
+            this.ctx.fillRect(this.goalX+50, CONFIG.height - 200, 10, 200);
             this.ctx.globalAlpha = 0.3;
-            this.ctx.fillStyle = '#ffff00';
-            this.ctx.fillRect(this.goalX+5, CONFIG.height - 300, 50, 250);
+            this.ctx.fillRect(this.goalX+10, CONFIG.height - 200, 40, 200);
             this.ctx.globalAlpha = 1.0;
+            this.ctx.shadowBlur = 0;
         }
 
         this.items.forEach(i => i.draw(this.ctx));
         this.enemies.forEach(e => e.draw(this.ctx));
         this.bullets.forEach(b => b.draw(this.ctx));
-        if (this.player.hp > 0 || this.gameState === 'START') this.player.draw(this.ctx);
+        if (this.player.health > 0) this.player.draw(this.ctx, this.keys);
         this.particles.forEach(p => p.draw(this.ctx));
 
         this.ctx.restore();
@@ -397,62 +562,93 @@ class Game {
         for(let i=0; i<count; i++) this.particles.push(new Particle(x, y, color));
     }
 
-    nextStage() {
-        this.stage++;
-        if (this.stage > 10) {
-            this.gameState = 'VICTORY';
-            this.updateUI();
-        } else {
-            this.resetStage();
-        }
-    }
-
     updateUI() {
+        this.elStage.innerText = this.stage;
+        this.elLife.innerText = this.player ? this.player.lives : 3;
+        
+        if (this.player) {
+            this.elHpText.innerText = Math.floor(this.player.health) + "/100";
+            this.elHpBar.style.width = Math.max(0, this.player.health) + "%";
+            this.elAmmo.innerText = this.player.ammo;
+            
+            let wText = "";
+            if (this.player.hasSword) wText += "SWORD ";
+            if (this.player.hasGun) wText += "GUN";
+            if (wText === "") wText = "NONE";
+            this.elWeapon.innerText = wText;
+        }
+
         if (this.gameState === 'START') {
             this.uiLayer.style.display = 'flex';
-            this.uiLayer.innerHTML = `<h1>HYPER MARICO</h1><p>REALISTIC MISSION</p><p class="blink" style="margin-top:40px; color:#ffff00;">PRESS SPACE TO START</p><p style="font-size:16px; margin-top:20px; opacity:0.7;">Move: ARROWS | Jump: SPACE | Attack: Z</p>`;
+            this.uiLayer.innerHTML = `<h1>HYPER MARIKO</h1><h2>LEGENDARY ADVENTURER</h2><p class="blink" style="font-size: 28px; color:#ffff00; margin-top: 20px;">PRESS SPACE TO START</p><div class="controls-info"><p>Move: ARROWS | Jump: SPACE</p><p>Sword: S | Gun: G (Aim: ↑↓)</p></div>`;
         } else if (this.gameState === 'GAMEOVER') {
             this.uiLayer.style.display = 'flex';
-            this.uiLayer.innerHTML = `<h1 style="color:gray">MISSION FAILED</h1><p>PRESS SPACE TO RETRY</p>`;
+            this.uiLayer.classList.add('start-bg');
+            this.uiLayer.innerHTML = `<h1 style="color:gray; font-size:80px;">MISSION FAILED</h1><p style="font-size:30px;">PRESS SPACE TO RETRY</p>`;
         } else if (this.gameState === 'VICTORY') {
             this.uiLayer.style.display = 'flex';
-            this.uiLayer.innerHTML = `<h1 style="color:gold">MISSION COMPLETE</h1><p>ALL STAGES CLEARED</p><p style="font-size:16px; margin-top:20px;">PRESS SPACE TO PLAY AGAIN</p>`;
+            this.uiLayer.innerHTML = `<h1 style="color:gold; font-size:80px;">MISSION COMPLETE</h1><p>ALL STAGES CLEARED</p><p style="font-size:20px; margin-top:20px;">PRESS SPACE TO PLAY AGAIN</p>`;
         } else {
             this.uiLayer.style.display = 'none';
         }
     }
 
     updateHUD() {
-        let wpn = "NONE";
-        if(this.player.weapon === 'sword') wpn = "SWORD";
-        if(this.player.weapon === 'gun') wpn = "GUN"; // 表示もGUNに統一
-        this.hudLayer.innerText = `STAGE: ${this.stage} | HP: ${this.player.hp} | WPN: ${wpn}`;
+        if(!this.player) return;
+        this.elStage.innerText = this.stage;
+        this.elLife.innerText = this.player.lives;
+        this.elHpText.innerText = Math.ceil(this.player.health) + "/100";
+        this.elHpBar.style.width = Math.max(0, this.player.health) + "%";
+        this.elAmmo.innerText = this.player.ammo;
+        
+        let wText = [];
+        if(this.player.hasSword) wText.push("SWORD");
+        if(this.player.hasGun) wText.push("GUN");
+        this.elWeapon.innerText = wText.length > 0 ? wText.join(" / ") : "NONE";
     }
 }
 
+// --- プレイヤー ---
 class Player {
-    constructor(x, y) {
+    constructor(x, y, data) {
         this.x = x; this.y = y;
-        this.width = 30; this.height = 70; 
+        this.width = 35; this.height = 80; // 少し背を高くリアルに
         this.vx = 0; this.vy = 0;
-        this.hp = 3;
-        this.weapon = 'none'; // none, sword, gun
+        
+        this.health = data.hp;
+        this.lives = data.lives;
+        this.ammo = data.ammo;
+        this.hasSword = data.hasSword || false;
+        this.hasGun = data.hasGun || false;
+        
         this.facingRight = true;
         this.onGround = false;
         this.invincible = 0;
         this.walkFrame = 0;
         this.attackFrame = 0;
+        this.currentWeaponAction = 'none'; // 'sword' or 'gun' アクション中
+        
+        this.aimAngle = 0; // 0: 水平, -1: 上, 1: 下 (簡易)
     }
 
     update(keys, platforms) {
-        if (keys['ArrowRight']) { this.vx += 0.5; this.facingRight = true; }
-        else if (keys['ArrowLeft']) { this.vx -= 0.5; this.facingRight = false; }
+        // 照準調整
+        if (this.hasGun) {
+            if (keys['ArrowUp']) this.aimAngle = -0.7; // 上
+            else if (keys['ArrowDown']) this.aimAngle = 0.7; // 下
+            else this.aimAngle = 0; // 水平
+        }
+
+        // 移動
+        if (keys['ArrowRight']) { this.vx += 0.8; this.facingRight = true; }
+        else if (keys['ArrowLeft']) { this.vx -= 0.8; this.facingRight = false; }
         else { this.vx *= CONFIG.friction; }
 
         if (this.vx > CONFIG.speed) this.vx = CONFIG.speed;
         if (this.vx < -CONFIG.speed) this.vx = -CONFIG.speed;
         this.x += this.vx;
 
+        // 横の壁判定
         platforms.forEach(p => {
             if (this.checkCol(p) && this.y + this.height > p.y + 10) {
                 if (this.vx > 0) this.x = p.x - this.width;
@@ -461,7 +657,8 @@ class Player {
             }
         });
 
-        if ((keys['Space'] || keys['ArrowUp']) && this.onGround) {
+        // ジャンプ（Spaceのみ）
+        if (keys['Space'] && this.onGround) {
             this.vy = -CONFIG.jump;
             this.onGround = false;
         }
@@ -469,13 +666,14 @@ class Player {
         this.vy += CONFIG.gravity;
         this.y += this.vy;
 
+        // 接地判定
         this.onGround = false;
         platforms.forEach(p => {
-            if (this.checkCol(p) && this.vy >= 0 && this.y + this.height - p.y < 20) {
+            if (this.checkCol(p) && this.vy >= 0 && this.y + this.height - p.y < 25) {
                 this.y = p.y - this.height;
                 this.vy = 0;
                 this.onGround = true;
-            } else if (this.checkCol(p) && this.vy < 0) {
+            } else if (this.checkCol(p) && this.vy < 0) { // 天井
                 this.y = p.y + p.height;
                 this.vy = 0;
             }
@@ -486,68 +684,164 @@ class Player {
         if (Math.abs(this.vx) > 0.5 && this.onGround) this.walkFrame += 0.2;
     }
 
-    attack(game) {
-        if (this.weapon === 'none' || this.attackFrame > 0) return;
-        this.attackFrame = 20;
+    attack(type, game) {
+        if (this.attackFrame > 0) return; // 連打防止
         
-        // 修正箇所: gun の場合に発射処理
-        if (this.weapon === 'gun') {
-            let bx = this.facingRight ? this.x + this.width : this.x;
-            let bvx = this.facingRight ? 15 : -15;
-            game.bullets.push(new Bullet(bx, this.y + 20, bvx, true));
+        if (type === 'sword' && this.hasSword) {
+            this.currentWeaponAction = 'sword';
+            this.attackFrame = 25;
+            // ソードの音などはここで再生可能
+        } 
+        else if (type === 'gun' && this.hasGun) {
+            if (this.ammo > 0) {
+                this.ammo--;
+                this.currentWeaponAction = 'gun';
+                this.attackFrame = 15;
+                
+                // 弾発射計算
+                let originX = this.facingRight ? this.x + this.width : this.x;
+                let originY = this.y + 25;
+                
+                // 照準角度
+                let angle = this.aimAngle; 
+                if (!this.facingRight && angle === 0) angle = 0; 
+                // 左向きの時の角度調整(Canvasのrotateと合わせるため符号注意だが、ここでは簡易ベクトル計算)
+                
+                let speed = 15;
+                let vx = this.facingRight ? Math.cos(angle) * speed : -Math.cos(angle) * speed;
+                let vy = Math.sin(angle) * speed;
+
+                game.bullets.push(new Bullet(originX, originY, vx, vy, true));
+            }
         }
     }
 
-    draw(ctx) {
+    draw(ctx, keys) {
         if (this.invincible > 0 && Math.floor(Date.now()/50)%2 === 0) return;
 
         ctx.save();
         ctx.translate(this.x + this.width/2, this.y + this.height/2);
+        
+        // 向き反転
         if (!this.facingRight) ctx.scale(-1, 1);
 
-        let legOffset = this.onGround ? Math.sin(this.walkFrame) * 10 : 10;
+        // 歩行アニメーション
+        let legOffset = this.onGround ? Math.sin(this.walkFrame) * 10 : 15;
 
-        // 足
-        ctx.fillStyle = '#1a1a1a'; 
-        ctx.fillRect(-6, 10, 5, 25 - legOffset);
-        ctx.fillRect(2, 10, 5, 25 + legOffset);
-
-        // 胴体
-        ctx.fillStyle = '#cc0000';
-        ctx.beginPath();
-        ctx.moveTo(-8, 10); ctx.lineTo(8, 10);
-        ctx.lineTo(6, -15); ctx.lineTo(-6, -15);
-        ctx.fill();
+        // --- リアル調 Mariko 描画 ---
+        // 右足（奥）
+        ctx.fillStyle = '#4a2c2c'; // 茶色のブーツ
+        ctx.fillRect(-8, 15, 6, 25 - legOffset);
         
-        // 頭
-        ctx.fillStyle = '#ffe0bd';
-        ctx.beginPath(); ctx.arc(0, -25, 8, 0, Math.PI*2); ctx.fill();
+        // 左足（手前）
+        ctx.fillStyle = '#5a3c3c'; 
+        ctx.fillRect(2, 15, 6, 25 + legOffset);
 
-        // 髪
-        ctx.fillStyle = '#503010';
-        ctx.beginPath(); ctx.arc(-2, -27, 9, 0, Math.PI*2); ctx.fill();
-        ctx.beginPath(); ctx.moveTo(-8, -25); 
-        ctx.quadraticCurveTo(-20, -15, -22, -5); 
-        ctx.lineTo(-15, -5); ctx.quadraticCurveTo(-12, -15, -6, -20);
+        // 脚部（肌色）
+        ctx.fillStyle = '#ffdbac';
+        ctx.fillRect(-8, 5, 6, 10);
+        ctx.fillRect(2, 5, 6, 10);
+
+        // 胴体（ホットパンツ）
+        ctx.fillStyle = '#111';
+        ctx.fillRect(-9, 0, 18, 10);
+        // ベルト
+        ctx.fillStyle = '#555';
+        ctx.fillRect(-10, 0, 20, 4);
+
+        // 上半身（タンクトップ - 青/黒）
+        ctx.fillStyle = '#002244';
+        ctx.beginPath();
+        ctx.moveTo(-8, 0); ctx.lineTo(8, 0);
+        ctx.lineTo(7, -25); ctx.lineTo(-7, -25);
+        ctx.fill();
+        // 胸部アクセント
+        ctx.fillStyle = '#00aaff';
+        ctx.fillRect(-5, -18, 10, 2);
+        
+        // 頭部
+        ctx.fillStyle = '#ffdbac';
+        ctx.beginPath(); ctx.arc(0, -32, 9, 0, Math.PI*2); ctx.fill();
+
+        // 顔（目）
+        ctx.fillStyle = '#000';
+        ctx.fillRect(2, -34, 2, 2); 
+        
+        // 髪（黒髪ロング）
+        ctx.fillStyle = '#1a1a1a';
+        ctx.beginPath(); ctx.arc(-1, -34, 10, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-8, -30);
+        ctx.quadraticCurveTo(-15, -10, -12, 5); // 後ろ髪
+        ctx.lineTo(5, -20);
+        ctx.fill();
+        // 前髪
+        ctx.beginPath();
+        ctx.moveTo(0, -44); ctx.quadraticCurveTo(8, -40, 8, -30); ctx.lineTo(0, -35);
         ctx.fill();
 
-        // 腕・武器
-        ctx.fillStyle = '#cc0000';
-        ctx.translate(0, -15);
-        let armRot = (this.attackFrame > 0 && this.weapon === 'sword') ? Math.PI/2 * (1 - this.attackFrame/20) : 0;
+        // --- 腕と武器 ---
+        ctx.fillStyle = '#ffdbac'; // 肌色
+        
+        // 剣を持っている腕
+        ctx.save();
+        ctx.translate(-5, -20); // 肩の位置
+        
+        // 剣攻撃アニメーション回転
+        let armRot = 0;
+        if (this.attackFrame > 0 && this.currentWeaponAction === 'sword') {
+            armRot = Math.PI * 0.8 * (1 - this.attackFrame/25) - 0.4;
+        }
         ctx.rotate(armRot);
+        
+        // 腕
         ctx.fillRect(-3, 0, 6, 18);
+        // 手
+        ctx.fillStyle = '#333'; // グローブ
+        ctx.fillRect(-4, 15, 8, 6);
 
-        // 武器描画
-        if (this.weapon === 'sword') {
-            ctx.fillStyle = '#fff';
-            ctx.fillRect(0, 15, 45, 3);
-            ctx.fillStyle = '#555';
-            ctx.fillRect(-2, 12, 6, 8);
-        } else if (this.weapon === 'gun') { // gunに変更
+        // 剣の描画（Sキーで所持している場合、または攻撃時）
+        if (this.hasSword) {
+            // 剣の柄
+            ctx.fillStyle = '#888';
+            ctx.fillRect(-2, 14, 4, 10); 
+            // ガード
+            ctx.fillStyle = '#ffd700';
+            ctx.fillRect(-6, 14, 12, 3);
+            // 刃
+            ctx.fillStyle = '#e0ffff';
+            ctx.shadowBlur = 5; ctx.shadowColor = '#fff';
+            ctx.fillRect(-2, 14 - 45, 4, 45);
+            ctx.shadowBlur = 0;
+        }
+        ctx.restore();
+
+        // 銃を持っている腕（手前）
+        if (this.hasGun) {
+            ctx.save();
+            ctx.translate(5, -20);
+            
+            // 照準角度適用
+            ctx.rotate(this.aimAngle);
+            
+            // 腕
+            ctx.fillStyle = '#ffdbac';
+            ctx.fillRect(-3, 0, 6, 15);
+            // 手・グローブ
+            ctx.fillStyle = '#333';
+            ctx.translate(0, 15);
+            ctx.rotate(-Math.PI/2); // 銃を構える
+            
+            // 銃本体
             ctx.fillStyle = '#222';
-            ctx.fillRect(0, 15, 18, 6); 
-            ctx.fillRect(0, 15, 5, 8);
+            ctx.fillRect(0, -3, 14, 6); // バレル
+            ctx.fillStyle = '#444';
+            ctx.fillRect(-4, -2, 6, 8); // グリップ
+            // 光るアクセント
+            ctx.fillStyle = '#00ffff';
+            ctx.fillRect(8, -1, 4, 2);
+            
+            ctx.restore();
         }
 
         ctx.restore();
@@ -560,65 +854,79 @@ class Player {
 
     takeDamage(amount) {
         if (this.invincible > 0) return;
-        this.hp -= amount;
-        this.invincible = 60;
+        this.health -= amount;
+        this.invincible = 40;
         this.vy = -5;
     }
 }
 
+// --- 弾丸 ---
 class Bullet {
-    constructor(x, y, vx, isPlayerBullet) {
-        this.x = x; this.y = y; this.vx = vx; this.isPlayerBullet = isPlayerBullet;
-        this.active = true; this.width = 10; this.height = 4;
-        this.damage = isPlayerBullet ? 2 : 1;
+    constructor(x, y, vx, vy, isPlayerBullet) {
+        this.x = x; this.y = y; this.vx = vx; this.vy = vy;
+        this.isPlayerBullet = isPlayerBullet;
+        this.active = true; this.width = 8; this.height = 8;
+        this.damage = isPlayerBullet ? 4 : 10;
     }
     update() {
         this.x += this.vx;
-        if (this.x < 0 || this.x > 20000) this.active = false;
+        this.y += this.vy;
+        if (this.x < 0 || this.x > 25000 || this.y < -1000 || this.y > 1000) this.active = false;
     }
     draw(ctx) {
-        ctx.fillStyle = this.isPlayerBullet ? '#ffff00' : '#ff00ff';
-        ctx.fillRect(this.x, this.y, this.width, this.height);
+        ctx.fillStyle = this.isPlayerBullet ? '#00ffff' : '#ff00ff';
+        ctx.beginPath(); ctx.arc(this.x, this.y, 4, 0, Math.PI*2); ctx.fill();
     }
 }
 
+// --- 敵 ---
 class Enemy {
     constructor(x, y, type) {
         this.x = x; this.y = y; this.type = type;
-        this.hp = (type === 'BOSS') ? 10 : (type === 'BIG_BOSS' ? 20 : 2);
-        this.vx = -2; this.vy = 0;
-        this.width = 40; this.height = 40;
+        this.hp = 20; // Zombie
+        if (type === 'BOSS') this.hp = 150;
+        if (type === 'BIG_BOSS') this.hp = 300;
         
-        if (type === 'ALIEN') { this.height = 60; }
-        if (type === 'BOSS' || type === 'BIG_BOSS') { 
-            this.width = 100; this.height = 120; 
+        this.vx = -1.5; this.vy = 0;
+        this.width = 40; this.height = 80; // 人型サイズ
+        if (type.includes('BOSS')) {
+            this.width = 80; this.height = 120;
             this.vx = 0;
         }
         this.timer = 0;
+        this.invincible = 0;
     }
     update(platforms, player) {
         this.timer++;
-        if (this.type === 'ALIEN') {
+        if (this.invincible > 0) this.invincible--;
+
+        if (this.type === 'ZOMBIE') {
+            // 重力
             this.vy += CONFIG.gravity;
+            // 徘徊
             this.x += this.vx;
-            let grounded = false;
-            platforms.forEach(p => {
-                if (this.x + this.width > p.x && this.x < p.x + p.width &&
-                    this.y + this.height + 1 >= p.y) grounded = true;
-            });
-            if (!grounded && this.vy === 0) this.vx *= -1;
-        } else if (this.type === 'DRONE') {
-            this.y += Math.sin(this.timer * 0.05) * 2;
-            this.x += this.vx;
-        } else {
-            this.vy += CONFIG.gravity;
-            if (this.timer % 120 === 0) { 
-                this.vy = -12; 
-                this.vx = (player.x < this.x) ? -6 : 6; 
+            
+            // プレイヤーが近くにいると加速
+            if (Math.abs(player.x - this.x) < 300) {
+                this.vx = (player.x < this.x) ? -3 : 3;
+            } else {
+                // 通常徘徊
+                if (this.timer % 200 === 0) this.vx *= -1;
             }
-            if (this.x < 0 || this.x > 20000) this.vx *= -1;
+
+        } else { // BOSS
+            this.vy += CONFIG.gravity;
+            if (this.timer % 100 === 0) { 
+                // ジャンプして踏みつぶしに来る
+                this.vy = -15; 
+                this.vx = (player.x < this.x) ? -8 : 8; 
+            }
+            if (this.y > CONFIG.height - 200) this.vx = 0; // 着地したら止まる
         }
+        
         this.y += this.vy;
+
+        // 壁・床判定
         platforms.forEach(p => {
             if (this.x < p.x + p.width && this.x + this.width > p.x &&
                 this.y < p.y + p.height && this.y + this.height > p.y) {
@@ -632,29 +940,52 @@ class Enemy {
         ctx.translate(this.x + this.width/2, this.y + this.height/2);
         if (this.vx > 0) ctx.scale(-1, 1);
 
-        if (this.type === 'ALIEN') {
-            ctx.fillStyle = '#2e8b57';
-            let leg = Math.sin(this.timer * 0.2) * 10;
-            ctx.fillRect(-12, 10, 8, 20 + leg); ctx.fillRect(4, 10, 8, 20 - leg);
-            ctx.beginPath(); ctx.ellipse(0, -5, 20, 30, 0, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#ff0000'; ctx.fillRect(-10, -25, 8, 4); ctx.fillRect(4, -25, 8, 4);
-        } else if (this.type === 'DRONE') {
-            ctx.fillStyle = '#555'; ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#f00'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#aaa'; ctx.fillRect(-25, -12, 50, 4);
+        // ダメージ点滅
+        if (this.invincible > 0 && Math.floor(Date.now()/50)%2===0) ctx.globalAlpha = 0.5;
+
+        if (this.type === 'ZOMBIE') {
+            // ゾンビ風描画
+            // 体
+            ctx.fillStyle = '#3c4a3c'; // 腐った服
+            ctx.fillRect(-15, -20, 30, 40);
+            // 足
+            ctx.fillStyle = '#2a2a2a';
+            let walk = Math.sin(this.timer * 0.2) * 10;
+            ctx.fillRect(-12, 20, 10, 20 + walk);
+            ctx.fillRect(2, 20, 10, 20 - walk);
+            // 頭
+            ctx.fillStyle = '#708070'; // 緑肌
+            ctx.beginPath(); ctx.arc(0, -30, 12, 0, Math.PI*2); ctx.fill();
+            // 目
+            ctx.fillStyle = '#ff0000';
+            ctx.fillRect(2, -32, 3, 3);
+            // 腕
+            ctx.fillStyle = '#708070';
+            ctx.save();
+            ctx.translate(10, -15);
+            ctx.rotate(-Math.PI/4 + Math.sin(this.timer*0.1)*0.2); // 前に伸ばす
+            ctx.fillRect(0, 0, 25, 8);
+            ctx.restore();
+
         } else {
-            ctx.fillStyle = '#111'; ctx.fillRect(-50, -60, 100, 120);
-            ctx.fillStyle = 'red'; ctx.beginPath(); ctx.arc(0, -10, 20, 0, Math.PI*2); ctx.fill();
-            ctx.fillStyle = '#0f0'; ctx.fillRect(-40, -70, 80 * (this.hp/20), 5);
+            // BOSS
+            ctx.fillStyle = '#220000'; ctx.fillRect(-40, -60, 80, 120);
+            ctx.fillStyle = '#550000'; ctx.fillRect(-30, -50, 60, 50); // アーマー
+            ctx.fillStyle = '#ff0000'; ctx.beginPath(); ctx.arc(0, -40, 10, 0, Math.PI*2); ctx.fill(); // コア
+            // HPバー
+            ctx.fillStyle = '#000'; ctx.fillRect(-40, -70, 80, 5);
+            ctx.fillStyle = '#f0f'; ctx.fillRect(-40, -70, 80 * (this.hp/(this.type==='BOSS'?150:300)), 5);
         }
         ctx.restore();
     }
     takeDamage(amt) { this.hp -= amt; }
 }
 
+// --- アイテム ---
 class Item {
-    constructor(x, y, type) {
-        this.x = x; this.y = y; this.type = type;
+    constructor(x, y, type, amount = 0) {
+        this.x = x; this.y = y; this.type = type; // SWORD, GUN, HEAL, LIFE
+        this.amount = amount; // 弾数など
         this.width = 30; this.height = 30;
         this.taken = false; this.timer = 0;
     }
@@ -662,37 +993,72 @@ class Item {
         if (this.taken) return;
         this.timer++;
         let fy = Math.sin(this.timer * 0.1) * 5;
-        ctx.fillStyle = '#ffd700'; ctx.fillRect(this.x, this.y + fy, 30, 30);
-        ctx.fillStyle = '#000'; ctx.font = "bold 16px sans-serif";
-        ctx.fillText(this.type === 'SWORD' ? 'S' : 'G', this.x+8, this.y + 22 + fy);
+        
+        ctx.save();
+        ctx.translate(this.x + 15, this.y + 15 + fy);
+        
+        if (this.type === 'SWORD') {
+            ctx.fillStyle = '#00ffff'; ctx.beginPath(); ctx.arc(0,0,15,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#000'; ctx.font = "bold 20px sans-serif"; ctx.textAlign="center";
+            ctx.fillText("S", 0, 7);
+        } else if (this.type === 'GUN') {
+            ctx.fillStyle = '#ffff00'; ctx.fillRect(-15,-15,30,30);
+            ctx.fillStyle = '#000'; ctx.font = "bold 14px sans-serif"; ctx.textAlign="center";
+            ctx.fillText("G", 0, 0);
+            ctx.font = "10px sans-serif";
+            ctx.fillText(this.amount, 0, 12);
+        } else if (this.type === 'HEAL') {
+            ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(0,0,12,0,Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#ff0000'; ctx.font = "bold 20px sans-serif"; ctx.textAlign="center";
+            ctx.fillText("♥", 0, 7);
+        } else if (this.type === 'LIFE') {
+            ctx.fillStyle = '#ff00ff'; ctx.beginPath(); ctx.moveTo(0,-15); ctx.lineTo(10,0); ctx.lineTo(0,15); ctx.lineTo(-10,0); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.font = "bold 16px sans-serif"; ctx.textAlign="center";
+            ctx.fillText("1UP", 0, 5);
+        }
+        ctx.restore();
     }
 }
 
+// --- 足場 ---
 class Platform {
     constructor(x, y, w, h, type) { this.x = x; this.y = y; this.width = w; this.height = h; this.type = type; }
     draw(ctx) {
         if (this.type === 'ground') {
-            ctx.fillStyle = '#2b1d0e'; ctx.fillRect(this.x, this.y, this.width, this.height);
-            ctx.fillStyle = '#1a1108'; ctx.fillRect(this.x, this.y, this.width, 5);
-        } else if (this.type === 'metal') {
-            ctx.fillStyle = '#444'; ctx.fillRect(this.x, this.y, this.width, this.height);
-            ctx.strokeStyle = '#666'; ctx.strokeRect(this.x, this.y, this.width, this.height);
-        } else {
+            // コンクリート風
             ctx.fillStyle = '#222'; ctx.fillRect(this.x, this.y, this.width, this.height);
+            ctx.strokeStyle = '#444'; ctx.strokeRect(this.x, this.y, this.width, this.height);
+            // 模様
+            ctx.fillStyle = '#111';
+            for(let i=0; i<this.width; i+=40) ctx.fillRect(this.x+i, this.y, 5, this.height);
+        } else if (this.type === 'metal') {
+            // 鉄骨
+            ctx.fillStyle = '#4a5a6a'; ctx.fillRect(this.x, this.y, this.width, this.height);
+            ctx.fillStyle = '#000'; ctx.fillRect(this.x, this.y, this.width, 5); // 上部の影
+            // バツ印のトラス構造
+            ctx.strokeStyle = '#334'; ctx.lineWidth = 2;
+            ctx.beginPath(); 
+            ctx.moveTo(this.x, this.y); ctx.lineTo(this.x+this.width, this.y+this.height);
+            ctx.moveTo(this.x+this.width, this.y); ctx.lineTo(this.x, this.y+this.height);
+            ctx.stroke();
+        } else {
+            ctx.fillStyle = '#000'; ctx.fillRect(this.x, this.y, this.width, this.height);
         }
     }
 }
 
+// --- エフェクト ---
 class Particle {
-    constructor(x, y, color) {
+    constructor(x, y, color, life = 30) {
         this.x = x; this.y = y; this.color = color;
-        this.vx = (Math.random()-0.5)*8; this.vy = (Math.random()-0.5)*8;
-        this.life = 30;
+        this.vx = (Math.random()-0.5)*10; this.vy = (Math.random()-0.5)*10;
+        this.life = life;
+        this.maxLife = life;
     }
     update() { this.x += this.vx; this.y += this.vy; this.life--; }
     draw(ctx) {
-        ctx.fillStyle = this.color; ctx.globalAlpha = this.life/30;
-        ctx.fillRect(this.x, this.y, 5, 5); ctx.globalAlpha = 1.0;
+        ctx.fillStyle = this.color; ctx.globalAlpha = this.life/this.maxLife;
+        ctx.fillRect(this.x, this.y, 4, 4); ctx.globalAlpha = 1.0;
     }
 }
 
